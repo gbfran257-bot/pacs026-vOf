@@ -1,0 +1,18 @@
+{
+  "Criteria nonconformities": "Incumplimientos de criterios",
+  "Delete": "Eliminar",
+  "Description": "Descripción",
+  "MAX": "MÁX",
+  "Measurements": "Mediciones",
+  "No, do not ask again": "No, no volver a preguntar",
+  "NonTargets": "No objetivos",
+  "Relabel": "Reetiquetar",
+  "Targets": "Objetivos",
+  "Track measurements for this series?": "¿Deseas hacer seguimiento de las mediciones de esta serie?",
+  "Do you want to add this measurement to the existing report?": "¿Deseas agregar esta medición al informe existente?",
+  "You have existing tracked measurements. What would you like to do with your existing tracked measurements?": "Tienes mediciones con seguimiento existentes. ¿Qué deseas hacer con ellas?",
+  "Measurements cannot span across multiple studies. Do you want to save your tracked measurements?": "Las mediciones no pueden abarcar varios estudios. ¿Deseas guardar tus mediciones con seguimiento?",
+  "Do you want to continue tracking measurements for this study?": "¿Deseas continuar haciendo seguimiento de las mediciones de este estudio?",
+  "Do you want to open this Segmentation?": "¿Deseas abrir esta segmentación?",
+  "There are unsaved measurements. Do you want to save it?": "Hay mediciones sin guardar. ¿Deseas guardarlas?"
+}

@@ -1,0 +1,109 @@
+services:
+  ldap:
+    image: dcm4che/slapd-dcm4chee:2.6.3-29.0
+    container_name: dcm4chee-ldap
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+    ports:
+      - "389:389"
+    env_file: docker-compose.env
+    volumes:
+      - ~/dcm4chee-arc/ldap:/var/lib/ldap
+      - ~/dcm4chee-arc/slapd.d:/etc/ldap/slapd.d
+    networks:
+      - pacs-network
+
+  db:
+    image: dcm4che/postgres-dcm4chee:14.5-29
+    container_name: dcm4chee-db
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+    ports:
+      - "5432:5432"
+    env_file: docker-compose.env
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ~/dcm4chee-arc/db:/var/lib/postgresql/data
+     # - ./share-api/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - pacs-network
+
+  arc:
+    image: dcm4che/dcm4chee-arc-psql:5.29.0
+    container_name: dcm4chee-arc
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+      - "9990:9990"
+      - "9993:9993"
+      - "11112:11112"
+      - "2762:2762"
+      - "2575:2575"
+      - "12575:12575"
+    env_file: docker-compose.env
+    environment:
+      WILDFLY_CHOWN: /opt/wildfly/standalone /storage
+      WILDFLY_WAIT_FOR: ldap:389 db:5432
+    depends_on:
+      - ldap
+      - db
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ~/dcm4chee-arc/wildfly:/opt/wildfly/standalone
+      - ~/dcm4chee-arc/storage:/storage
+    networks:
+      - pacs-network
+
+  ohif_viewer:
+    build:
+      context: ../
+      dockerfile: ./platform/app/Nginx-Dcm4chee/dockerfile
+    image: webapp:latest
+    container_name: ohif_dcm4chee
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf
+      - ./config/auth/.htpasswd:/etc/nginx/.htpasswd:ro
+      - ./logs/nginx:/var/logs/nginx
+    ports:
+      - '443:443' #- '80:80'
+      - '81:81'
+    restart: on-failure
+    networks:
+      - pacs-network
+    depends_on:
+      - arc
+
+  share-api:
+    build: ./share-api
+    container_name: pacs-share-api
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - DB_HOST=db       # correcto
+      - DB_PORT=5432
+      - DB_NAME=pacsdb
+      - DB_USER=pacs
+      - DB_PASS=pacs
+      - OHIF_URL=http://localhost:81
+      - DCM4CHEE_URL=http://dcm4chee-arc:8080
+    networks:
+      - pacs-network
+    depends_on:
+      - db                     # el nombre real del servicio es "db"
+    restart: unless-stopped
+
+networks:
+  pacs-network:
+    driver: bridge

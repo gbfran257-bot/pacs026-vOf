@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Compartir Estudio DICOM</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #2d7a4f 0%, #1a5c38 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+    }
+    h1 {
+      color: #2d7a4f;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #333;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    input, select {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: #4caf50;
+    }
+    .required {
+      color: #dc3545;
+    }
+    button {
+      width: 100%;
+      padding: 14px;
+      background: #2d7a4f;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #4caf50;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .result {
+      margin-top: 30px;
+      padding: 20px;
+      border-radius: 6px;
+      display: none;
+    }
+    .result.success {
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+    }
+    .result.error {
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+    }
+    .share-url {
+      background: white;
+      padding: 12px;
+      border-radius: 4px;
+      margin: 15px 0;
+      word-break: break-all;
+      font-family: monospace;
+      font-size: 13px;
+      border: 1px solid #c3e6cb;
+    }
+    .copy-btn {
+      width: auto;
+      padding: 8px 16px;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+    .info {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #666;
+    }
+    .loader {
+      display: none;
+      text-align: center;
+      margin: 20px 0;
+    }
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #2d7a4f;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Compartir Estudio DICOM</h1>
+    <p class="subtitle">Genera un enlace seguro para compartir estudios con pacientes</p>
+    
+    <form id="shareForm">
+      <div class="form-group">
+        <label for="studyUID">Study Instance UID <span class="required">*</span></label>
+        <input type="text" id="studyUID" name="studyUID" required 
+               placeholder="1.2.840.113619.2.xxx">
+      </div>
+      
+      <div class="form-group">
+        <label for="patientName">Nombre del Paciente</label>
+        <input type="text" id="patientName" name="patientName" 
+               placeholder="Apellido, Nombre">
+      </div>
+      
+      <div class="form-group">
+        <label for="patientID">ID del Paciente</label>
+        <input type="text" id="patientID" name="patientID" 
+               placeholder="DNI o ID">
+      </div>
+      
+      <div class="form-group">
+        <label for="studyDate">Fecha del Estudio</label>
+        <input type="date" id="studyDate" name="studyDate">
+      </div>
+      
+      <div class="form-group">
+        <label for="modality">Modalidad</label>
+        <select id="modality" name="modality">
+          <option value="">Seleccionar...</option>
+          <option value="CR">CR - Radiografía Computada</option>
+          <option value="CT">CT - Tomografía Computada</option>
+          <option value="MR">MR - Resonancia Magnética</option>
+          <option value="US">US - Ultrasonido</option>
+          <option value="DX">DX - Radiografía Digital</option>
+          <option value="MG">MG - Mamografía</option>
+          <option value="XA">XA - Angiografía</option>
+        </select>
+      </div>
+      
+      <div class="form-group">
+        <label for="expiryHours">Validez del Enlace</label>
+        <select id="expiryHours" name="expiryHours">
+          <option value="24">24 horas</option>
+          <option value="48" selected>48 horas</option>
+          <option value="72">72 horas</option>
+          <option value="168">7 días</option>
+        </select>
+      </div>
+      
+      <button type="submit" id="submitBtn">Generar Enlace</button>
+    </form>
+    
+    <div class="loader" id="loader">
+      <div class="spinner"></div>
+      <p>Generando enlace...</p>
+    </div>
+    
+    <div class="result" id="result"></div>
+  </div>
+
+  <script>
+    const form = document.getElementById('shareForm');
+    const loader = document.getElementById('loader');
+    const result = document.getElementById('result');
+    const submitBtn = document.getElementById('submitBtn');
+    
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const formData = {
+        studyUID: document.getElementById('studyUID').value.trim(),
+        patientName: document.getElementById('patientName').value.trim(),
+        patientID: document.getElementById('patientID').value.trim(),
+        studyDate: document.getElementById('studyDate').value,
+        modality: document.getElementById('modality').value,
+        expiryHours: parseInt(document.getElementById('expiryHours').value)
+      };
+      
+      if (!formData.studyUID) {
+        showError('El Study Instance UID es requerido');
+        return;
+      }
+      
+      submitBtn.disabled = true;
+      loader.style.display = 'block';
+      result.style.display = 'none';
+      
+      try {
+        const response = await fetch('/api/share', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(formData)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          showSuccess(data);
+        } else {
+          showError(data.message || 'Error al generar enlace');
+        }
+        
+      } catch (error) {
+        showError('Error de conexión: ' + error.message);
+      } finally {
+        submitBtn.disabled = false;
+        loader.style.display = 'none';
+      }
+    });
+    
+    function showSuccess(data) {
+      const expiryDate = new Date(data.expiresAt).toLocaleString('es-AR');
+      
+      result.className = 'result success';
+      result.innerHTML = `
+        <h3>Enlace generado exitosamente</h3>
+        <div class="share-url" id="shareUrl">${data.url}</div>
+        <button class="copy-btn" onclick="copyToClipboard()">Copiar Enlace</button>
+        <div class="info">
+          <strong>Token:</strong> ${data.token}<br>
+          <strong>Expira:</strong> ${expiryDate}<br>
+          <strong>Study UID:</strong> ${data.studyUID}
+        </div>
+      `;
+      result.style.display = 'block';
+    }
+    
+    function showError(message) {
+      result.className = 'result error';
+      result.innerHTML = `<strong>Error:</strong> ${message}`;
+      result.style.display = 'block';
+    }
+    
+    function copyToClipboard() {
+      const shareUrl = document.getElementById('shareUrl').textContent;
+      navigator.clipboard.writeText(shareUrl).then(() => {
+        alert('Enlace copiado al portapapeles');
+      }).catch(() => {
+        alert('No se pudo copiar el enlace');
+      });
+    }
+  </script>
+</body>
+</html>

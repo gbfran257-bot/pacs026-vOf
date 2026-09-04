@@ -1,0 +1,38 @@
+/* ===== BODY ===== */
+body {
+  background-color: #0b1220 !important;
+  color: #e5e7eb;
+}
+
+/* ===== HEADER SUPERIOR ===== */
+header {
+  background-color: #84B926 !important;
+}
+
+/* ===== TEXTO CENTRADO HEADER ===== */
+.ohif-header-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+/* ===== TABLAS ===== */
+.MuiTableHead-root {
+  background-color: #24305D !important;
+}
+
+.MuiTableRow-root {
+  background-color: #24305D !important;
+}
+
+.MuiTableRow-root:hover {
+  background-color: #24305D !important;
+}
+
+.MuiTableCell-root {
+  color: #84B926 !important;
+}

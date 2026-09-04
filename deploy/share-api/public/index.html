@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Generacion enlace DICOM</title>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #4e45cc 0%, #4e45cc 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+    }
+
+    h1 {
+      color: #000000;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #333;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    input:focus, select:focus {
+      outline: none;
+      border-color: #1a211a;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      background: #3c6eb8;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #3f66db;
+    }
+
+    .result {
+      margin-top: 30px;
+      padding: 20px;
+      border-radius: 6px;
+      display: none;
+    }
+
+    .result.success {
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #3c069a;
+    }
+
+    .result.error {
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+    }
+
+    .share-url {
+      background: #fff;
+      padding: 12px;
+      border-radius: 4px;
+      margin: 15px 0;
+      word-break: break-all;
+      font-family: monospace;
+      font-size: 13px;
+      border: 1px solid #c3e6cb;
+    }
+
+    .copy-btn {
+      padding: 8px 16px;
+      margin-top: 10px;
+      font-size: 14px;
+      width: auto;
+    }
+
+    .loader {
+      display: none;
+      text-align: center;
+      margin-top: 20px;
+    }
+
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #060706;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: auto;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+        .form-image {
+      display: flex;
+      justify-content: center;
+      margin: 20px 0 30px;
+      pointer-events: none;
+    }
+    /**/
+
+    .form-image img {
+      /*filter: grayscale(100%);*/
+      width: 50%;          /* 👈 SOLO LA MITAD */
+      max-width: 260px;    /* evita que se vea gigante */
+      opacity: 0.9;
+    }
+
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>Generar enlace DICOM</h1>
+    <p class="subtitle">Genera un enlace seguro para compartir estudios</p>
+
+    <form id="shareForm">
+        <!-- IMAGEN CENTRADA -->
+      <div class="form-image">
+      <img src="n1.jpeg" alt="DICOM">
+      </div>
+      <div class="form-group">
+        <label>Study Instance UID *</label>
+        <input type="text" id="studyUID" placeholder="Study UID" required>
+      </div>
+
+      <div class="form-group">
+        <label>Nombre del Paciente</label>
+        <input type="text" id="patientName">
+      </div>
+
+      <div class="form-group">
+        <label>ID del Paciente</label>
+        <input type="text" id="patientID">
+      </div>
+
+      <div class="form-group">
+        <label>Fecha del Estudio</label>
+        <input type="date" id="studyDate">
+      </div>
+
+      <div class="form-group">
+        <label>Modalidad</label>
+        <select id="modality">
+          <option value="">Seleccionar…</option>
+          <option value="CT">CT</option>
+          <option value="MR">MR</option>
+          <option value="CR">CR</option>
+          <option value="US">US</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Validez del Enlace</label>
+        <select id="expiryHours">
+          <option value="0">Sin caducidad</option>
+          <option value="24">24 horas</option>
+          <option value="48" selected>48 horas</option>
+          <option value="72">72 horas</option>
+          <option value="168">7 días</option>
+        </select>
+      </div>
+
+      <button type="submit">Generar Enlace</button>
+    </form>
+
+    <div class="loader" id="loader">
+      <div class="spinner"></div>
+      <p>Generando enlace…</p>
+    </div>
+
+    <div class="result" id="result"></div>
+  </div>
+
+  <script>
+    const form = document.getElementById('shareForm');
+    const loader = document.getElementById('loader');
+    const result = document.getElementById('result');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      loader.style.display = 'block';
+      result.style.display = 'none';
+
+      const payload = {
+        studyUID: studyUID.value.trim(),
+        patientName: patientName.value.trim() || null,
+        patientID: patientID.value.trim() || null,
+        studyDate: studyDate.value || null,
+        modality: modality.value || null,
+        expiryHours: parseInt(expiryHours.value)
+      };
+
+      try {
+        const res = await fetch('/api/share', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        loader.style.display = 'none';
+
+        if (!data.success) {
+          result.className = 'result error';
+          result.textContent = data.message || 'Error al generar enlace';
+          result.style.display = 'block';
+          return;
+        }
+
+        /*if (data.reused) {
+          result.innerHTML += `<p><i>Este estudio ya tenía un enlace activo</i></p>`;
+        }*/
+
+        const expira = data.expiresAt
+          ? new Date(data.expiresAt).toLocaleString()
+          : 'No expira';
+
+        result.className = 'result success';
+        result.innerHTML = `
+          <strong>Enlace generado</strong>
+          <div class="share-url">${data.url}</div>
+          <p><b>Expira:</b> ${expira}</p>
+          <button class="copy-btn" onclick="navigator.clipboard.writeText('${data.url}')">
+            Copiar enlace
+          </button>
+        `;
+        result.style.display = 'block';
+
+      } catch (err) {
+        loader.style.display = 'none';
+        result.className = 'result error';
+        result.textContent = 'Error de conexión con el servidor';
+        result.style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>

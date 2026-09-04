@@ -1,0 +1,35 @@
+<script>
+async function loadStudy() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token');
+
+  if (!token) {
+    document.body.innerHTML = '<h2>Token no proporcionado</h2>';
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/resolve/${token}`);
+    const data = await response.json();
+
+    if (!data.success || !data.studyUID) {
+      document.body.innerHTML = '<h2>Token inválido o expirado</h2>';
+      return;
+    }
+
+    // URL BASE DE OHIF
+    const ohifBase = data.viewerUrl || 'http://localhost';
+
+    // 🔥 URL CORRECTA PARA ABRIR ESTUDIO
+    const ohifStudyUrl =
+      `${ohifBase}/viewer?StudyInstanceUIDs=${encodeURIComponent(data.studyUID)}`;
+
+    window.location.replace(ohifStudyUrl);
+
+  } catch (err) {
+    document.body.innerHTML = '<h2>Error conectando con el servidor</h2>';
+  }
+}
+
+loadStudy();
+</script>

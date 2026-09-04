@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS shared_links (
+    id SERIAL PRIMARY KEY,
+    token VARCHAR(128) NOT NULL UNIQUE,
+    study_uid TEXT NOT NULL,
+    series_uid TEXT,
+    modality TEXT,
+    accession_number TEXT,
+    patient_name TEXT,
+    patient_id TEXT,
+    patient_birthdate TEXT,
+    description TEXT,
+    study_date TEXT,
+    viewer_url TEXT,
+    created_by TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMP NOT NULL,
+    max_uses INTEGER,
+    uses_left INTEGER,
+    is_active BOOLEAN DEFAULT TRUE
+);
