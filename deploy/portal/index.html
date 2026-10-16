@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portal de estudios</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;background:#f2f4f8;color:#222;padding:20px}
+  .card{background:#fff;max-width:900px;margin:20px auto;padding:28px;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.1)}
+  .card.narrow{max-width:420px}
+  h1{font-size:24px;margin-bottom:6px}
+  h2{font-size:18px;margin:24px 0 8px}
+  label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
+  input{width:100%;padding:10px;border:2px solid #e0e0e0;border-radius:6px;font-size:14px}
+  button{padding:10px 18px;background:#3c6eb8;color:#fff;border:0;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;margin-top:14px}
+  button.link{background:none;color:#3c6eb8;padding:0;margin:12px 0 0;text-decoration:underline;font-weight:400}
+  button.sec{background:#888;margin:0}
+  .msg{margin-top:12px;font-size:14px;min-height:18px}
+  .err{color:#b00020}.ok{color:#1b7a2f}
+  .top{display:flex;justify-content:space-between;align-items:center}
+  .wrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}
+  th,td{text-align:left;padding:8px;border-bottom:1px solid #e5e5e5}
+  th{background:#f7f8fa}
+  .hidden{display:none}
+
+  #app{max-width:1200px}
+  table{background:#24305d;color:#fff;border-radius:8px;overflow:hidden}
+  th{background:#1b2347;color:#fff}
+  td,th{border-bottom:1px solid #84bd22}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:#2f3d78}
+  td a{color:#9fd13b;font-weight:600}
+  .mini{padding:5px 10px;font-size:12px;margin:0 0 0 6px;background:#3c6eb8}
+  td.acts{white-space:nowrap}
+  #linkBox{margin-top:14px;padding:12px;border-radius:6px;background:#eef6e4;font-size:14px;word-break:break-all}
+  .filesSummary{font-size:13px;color:#555;margin-top:6px}
+</style>
+</head>
+<body>
+
+<!-- LOGIN / REGISTRO -->
+<div id="auth" class="card narrow">
+  <h1>Portal de estudios</h1>
+
+  <form id="loginForm">
+    <label>Email</label><input type="email" id="loginEmail" required>
+    <label>Contraseña</label><input type="password" id="loginPass" required>
+    <button type="submit">Entrar</button>
+    <br><button type="button" class="link" id="toRegister">Crear cuenta</button>
+  </form>
+
+  <form id="registerForm" class="hidden">
+    <label>Nombre</label><input type="text" id="regNombre" required>
+    <label>Email</label><input type="email" id="regEmail" required>
+    <label>Contraseña (mín. 6 caracteres)</label><input type="password" id="regPass" minlength="6" required>
+    <button type="submit">Registrarme</button>
+    <br><button type="button" class="link" id="toLogin">Ya tengo cuenta</button>
+  </form>
+
+  <p class="msg" id="authMsg"></p>
+</div>
+
+<!-- APP -->
+<div id="app" class="card hidden">
+  <div class="top">
+    <h1 id="hello">Mis estudios</h1>
+    <button class="sec" id="logout">Salir</button>
+  </div>
+
+  <h2>Subir imágenes o estudios (PNG / JPG / DICOM)</h2>
+  <form id="uploadForm">
+    <label>Archivos (puedes seleccionar varios)</label>
+    <input type="file" id="filesInput" multiple accept=".png,.jpg,.jpeg,.bmp,.dcm,.dicom,.ima,application/dicom,image/*">
+
+    <label>O una carpeta completa</label>
+    <input type="file" id="folderInput" webkitdirectory directory multiple>
+
+    <p class="filesSummary" id="filesSummary"></p>
+
+    <label>Nombre del paciente</label><input type="text" id="patientName" required>
+    <label>ID del paciente</label><input type="text" id="patientId" required>
+    <label>Descripción</label><input type="text" id="descripcion" required>
+    <button type="submit">Subir</button>
+  </form>
+  <p class="msg" id="uploadMsg"></p>
+
+  <h2>Estudios</h2>
+  <div class="wrap">
+    <table>
+      <thead><tr><th>Paciente</th><th>ID</th><th>Fecha</th><th>Descripción</th><th>Modalidad</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <p class="msg" id="listMsg"></p>
+  <div id="linkBox" class="hidden"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/dcmjs@0.29.13/build/dcmjs.min.js"></script>
+<script>
+var API = '/api';
+function $(id){ return document.getElementById(id); }
+function setMsg(el, text, ok){ el.textContent = text; el.className = 'msg ' + (ok ? 'ok' : 'err'); }
+function getToken(){ return localStorage.getItem('portal_token'); }
+
+function showApp(logged){
+  $('auth').classList.toggle('hidden', logged);
+  $('app').classList.toggle('hidden', !logged);
+  if (logged){
+    $('hello').textContent = 'Estudios de ' + (localStorage.getItem('portal_user') || '');
+    loadStudies();
+  }
+}
+
+function fmtDate(d){
+  d = String(d || '');
+  return d.length === 8 ? d.slice(0,4) + '-' + d.slice(4,6) + '-' + d.slice(6,8) : d;
+}
+var EXPIRY_HOURS = 48; // validez del enlace en horas (0 = sin caducidad)
+
+function cleanName(n){ return (n || '').replace(/\^/g, ' '); }
+
+async function getLink(s){
+  var r = await fetch(API + '/share', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      studyUID: s.study_iuid,
+      patientName: cleanName(s.patient_name) || null,
+      patientID: s.patient_id || null,
+      studyDate: fmtDate(s.study_date) || null,
+      modality: (s.modalities_in_study || '').split(',')[0] || null,
+      expiryHours: EXPIRY_HOURS
+    })
+  });
+  var d = await r.json().catch(function(){ return {}; });
+  if (!r.ok || !d.success) throw new Error(d.message || 'No se pudo generar el enlace');
+  return d;
+}
+
+async function copyText(t){
+  try { await navigator.clipboard.writeText(t); return true; } catch(e){ return false; }
+}
+
+async function onGenerate(s){
+  try {
+    setMsg($('listMsg'), 'Generando enlace...', true);
+    var d = await getLink(s);
+    var copied = await copyText(d.url);
+    var exp = d.expiresAt ? new Date(d.expiresAt).toLocaleString() : 'No expira';
+    var box = $('linkBox');
+    box.classList.remove('hidden');
+    box.textContent = 'Enlace: ' + d.url + '  |  Expira: ' + exp + (copied ? '  (copiado al portapapeles)' : '');
+    setMsg($('listMsg'), '', true);
+  } catch(err){ setMsg($('listMsg'), err.message, false); }
+}
+
+async function onShare(s){
+  try {
+    var d = await getLink(s);
+    var text = 'Estudio de ' + cleanName(s.patient_name) + ' - Clinica San Antonio';
+    if (navigator.share) {
+      await navigator.share({title: 'Estudio DICOM', text: text, url: d.url});
+    } else {
+      window.open('https://wa.me/?text=' + encodeURIComponent(text + ' ' + d.url), '_blank');
+    }
+  } catch(err){
+    if (err.name !== 'AbortError') setMsg($('listMsg'), err.message, false);
+  }
+}
+
+function logout(){
+  localStorage.removeItem('portal_token');
+  localStorage.removeItem('portal_user');
+  showApp(false);
+}
+
+async function postJson(url, body){
+  var r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  var d = await r.json().catch(function(){ return {}; });
+  if (!r.ok) throw new Error(d.error || 'Error ' + r.status);
+  return d;
+}
+
+function saveSession(d){
+  localStorage.setItem('portal_token', d.token);
+  localStorage.setItem('portal_user', d.user.nombre);
+  showApp(true);
+}
+
+$('toRegister').onclick = function(){ $('loginForm').classList.add('hidden'); $('registerForm').classList.remove('hidden'); $('authMsg').textContent=''; };
+$('toLogin').onclick = function(){ $('registerForm').classList.add('hidden'); $('loginForm').classList.remove('hidden'); $('authMsg').textContent=''; };
+$('logout').onclick = logout;
+
+$('loginForm').onsubmit = async function(e){
+  e.preventDefault();
+  try { saveSession(await postJson(API + '/portal-auth/login', {email:$('loginEmail').value.trim(), password:$('loginPass').value})); }
+  catch(err){ setMsg($('authMsg'), err.message, false); }
+};
+
+$('registerForm').onsubmit = async function(e){
+  e.preventDefault();
+  try { saveSession(await postJson(API + '/portal-auth/register', {nombre:$('regNombre').value.trim(), email:$('regEmail').value.trim(), password:$('regPass').value})); }
+  catch(err){ setMsg($('authMsg'), err.message, false); }
+};
+
+async function loadStudies(){
+  var tbody = $('rows');
+  tbody.innerHTML = '';
+  setMsg($('listMsg'), 'Cargando...', true);
+  try {
+    var r = await fetch(API + '/studies/mine', {headers:{Authorization:'Bearer ' + getToken()}});
+    if (r.status === 401){ logout(); return; }
+    var list = await r.json();
+    if (!r.ok) throw new Error(list.error || 'Error ' + r.status);
+    setMsg($('listMsg'), list.length ? '' : 'Aún no tienes estudios.', true);
+    list.forEach(function(s){
+      var tr = document.createElement('tr');
+      tr.onclick = function(){ window.open('/viewer?StudyInstanceUIDs=' + encodeURIComponent(s.study_iuid), '_blank'); };
+      var vals = [
+        (s.patient_name || '').replace(/\^/g, ' '),
+        s.patient_id || '',
+        fmtDate(s.study_date),
+        s.study_desc || '',
+        s.modalities_in_study || ''
+      ];
+      vals.forEach(function(v){ var td = document.createElement('td'); td.textContent = v; tr.appendChild(td); });
+      var td = document.createElement('td');
+      var a = document.createElement('a');
+      a.textContent = 'Abrir';
+      a.target = '_blank'; a.onclick = function(ev){ ev.stopPropagation(); };
+      a.href = '/viewer?StudyInstanceUIDs=' + encodeURIComponent(s.study_iuid);
+      td.className = 'acts';
+      td.appendChild(a);
+      var b1 = document.createElement('button');
+      b1.type = 'button'; b1.className = 'mini'; b1.textContent = 'Generar enlace';
+      b1.onclick = function(ev){ ev.stopPropagation(); onGenerate(s); };
+      var b2 = document.createElement('button');
+      b2.type = 'button'; b2.className = 'mini'; b2.textContent = 'Compartir';
+      b2.onclick = function(ev){ ev.stopPropagation(); onShare(s); };
+      td.appendChild(b1); td.appendChild(b2);
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    });
+  } catch(err){ setMsg($('listMsg'), err.message, false); }
+}
+
+// --- Subida múltiple / carpeta + autollenado desde DICOM ---
+var selectedFiles = [];
+
+function mergeFiles(newList){
+  var existentes = new Set(selectedFiles.map(function(f){ return f.name + '_' + f.size; }));
+  Array.from(newList).forEach(function(f){
+    var clave = f.name + '_' + f.size;
+    if (!existentes.has(clave)) {
+      selectedFiles.push(f);
+      existentes.add(clave);
+    }
+  });
+  $('filesSummary').textContent = selectedFiles.length + ' archivo(s) seleccionado(s)';
+  autoFillFromFirstDicom();
+}
+
+$('filesInput').addEventListener('change', function(e){ mergeFiles(e.target.files); });
+$('folderInput').addEventListener('change', function(e){ mergeFiles(e.target.files); });
+
+function looksLikeDicom(file){
+  var ext = file.name.split('.').pop().toLowerCase();
+  return ['dcm', 'dicom', 'ima'].indexOf(ext) !== -1;
+}
+
+async function autoFillFromFirstDicom(){
+  var dicomFile = selectedFiles.find(looksLikeDicom);
+  if (!dicomFile) return;
+  try {
+    var arrayBuffer = await dicomFile.arrayBuffer();
+    var dicomDict = dcmjs.data.DicomMessage.readFile(arrayBuffer, { ignoreErrors: true });
+    var dataset = dcmjs.data.DicomMetaDictionary.naturalizeDataset(dicomDict.dict);
+    var nombre = (dataset.PatientName || '').replace(/\^/g, ' ').trim();
+    if (nombre) $('patientName').value = nombre;
+    if (dataset.PatientID) $('patientId').value = dataset.PatientID;
+    if (dataset.StudyDescription) $('descripcion').value = dataset.StudyDescription;
+  } catch (err) {
+    console.warn('No se pudo leer metadata del DICOM en el navegador:', err);
+  }
+}
+
+$('uploadForm').onsubmit = async function(e){
+  e.preventDefault();
+  if (selectedFiles.length === 0){
+    setMsg($('uploadMsg'), 'Selecciona al menos un archivo.', false);
+    return;
+  }
+  var fd = new FormData();
+  selectedFiles.forEach(function(f){ fd.append('files', f); });
+  fd.append('patientName', $('patientName').value.trim());
+  fd.append('patientId', $('patientId').value.trim());
+  fd.append('descripcion', $('descripcion').value.trim());
+
+  setMsg($('uploadMsg'), 'Subiendo ' + selectedFiles.length + ' archivo(s)...', true);
+  try {
+    var r = await fetch(API + '/studies/upload-batch', {method:'POST', headers:{Authorization:'Bearer ' + getToken()}, body:fd});
+    var d = await r.json().catch(function(){ return {}; });
+    if (r.status === 401){ logout(); return; }
+    if (!r.ok){
+      var detalle = (d.errores || []).map(function(e){ return e.archivo + ': ' + e.error; }).join(' | ');
+      throw new Error((d.error || ('Error ' + r.status)) + (detalle ? ' — ' + detalle : ''));
+    }
+    var okMsg = 'Listo: ' + d.subidos.length + ' archivo(s) subidos.';
+    if (d.estudiosAjenos && d.estudiosAjenos.length){
+      okMsg += ' Nota: ' + d.estudiosAjenos.length + ' archivo(s) DICOM sin cabecera estándar no se pudieron fusionar y quedaron como estudio(s) aparte (con su propio paciente original).';
+    }
+    if (d.errores && d.errores.length){
+      okMsg += ' — ' + d.errores.length + ' fallaron: ' + d.errores.map(function(e){ return e.archivo; }).join(', ');
+    }
+    setMsg($('uploadMsg'), okMsg, true);
+    $('uploadForm').reset();
+    selectedFiles = [];
+    $('filesSummary').textContent = '';
+    loadStudies();
+  } catch(err){ setMsg($('uploadMsg'), err.message, false); }
+};
+
+showApp(!!getToken());
+</script>
+</body>
+</html>

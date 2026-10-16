@@ -4,6 +4,7 @@ import { getEnabledElement, StackViewport, BaseVolumeViewport } from '@cornersto
 import { ToolGroupManager, segmentation, Enums } from '@cornerstonejs/tools';
 import { getEnabledElement as OHIFgetEnabledElement } from '../state';
 import { useSystem } from '@ohif/core/src';
+import { composeCanvases, descargarCanvas, imprimirCanvas } from './composeAndPrint';
 
 const DEFAULT_SIZE = 512;
 const MAX_TEXTURE_SIZE = 10000;
@@ -224,6 +225,77 @@ const CornerstoneViewportDownloadForm = ({
     link.click();
   };
 
+    const handlePrint = async () => {
+    const div = document.querySelector(`div[data-viewport-uid="${VIEWPORT_ID}"]`);
+    if (!div) {
+      return;
+    }
+    const canvas = await html2canvas(div as HTMLElement);
+    imprimirCanvas(canvas);
+  };
+
+  const getCells = () => {
+    const ids = cornerstoneViewportService
+      .getViewportIds()
+      .filter(id => id !== VIEWPORT_ID);
+
+    return ids
+      .map((id, i) => {
+        const element = OHIFgetEnabledElement(id)?.element as HTMLElement | undefined;
+        if (!element) {
+          return null;
+        }
+        let thumb = '';
+        try {
+          const src = element.querySelector('canvas') as HTMLCanvasElement | null;
+          if (src && src.width) {
+            const t = document.createElement('canvas');
+            t.width = 200;
+            t.height = Math.max(1, Math.round((200 * src.height) / src.width));
+            t.getContext('2d').drawImage(src, 0, 0, t.width, t.height);
+            thumb = t.toDataURL('image/jpeg', 0.6);
+          }
+        } catch (e) {
+          console.debug('No se pudo generar miniatura', e);
+        }
+        return { id, label: `Imagen ${i + 1}`, thumb, isActive: id === activeViewportIdProp };
+      })
+      .filter(Boolean);
+  };
+
+  const handleCombined = async (
+    ids: string[],
+    opts: {
+      action: 'save' | 'print';
+      filename: string;
+      fileType: string;
+      cols: number;
+      includeOverlay: boolean;
+    }
+  ) => {
+    const canvases: HTMLCanvasElement[] = [];
+    for (const id of ids) {
+      const el = OHIFgetEnabledElement(id)?.element as HTMLElement | undefined;
+      if (!el) {
+        continue;
+      }
+      // el pane incluye el texto del overlay (paciente, W/L, etc.)
+      const target = (opts.includeOverlay && el.closest('[data-cy="viewport-pane"]')) || el;
+      canvases.push(
+        await html2canvas(target as HTMLElement, { backgroundColor: '#000', useCORS: true })
+      );
+    }
+    if (!canvases.length) {
+      return;
+    }
+    const combinado = composeCanvases(canvases, { cols: opts.cols });
+    if (opts.action === 'print') {
+      imprimirCanvas(combinado);
+    } else {
+      descargarCanvas(combinado, opts.filename, opts.fileType);
+    }
+  };
+
   const ViewportDownloadFormNew = customizationService.getCustomization(
     'ohif.captureViewportModal'
   );
@@ -242,6 +314,9 @@ const CornerstoneViewportDownloadForm = ({
       onDisableViewport={handleDisableViewport}
       onDownload={handleDownload}
       warningState={warningState}
+      onPrint={handlePrint}
+      onGetCells={getCells}
+      onCombine={handleCombined}
     />
   );
 };

@@ -73,6 +73,7 @@ services:
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf
       - ./config/auth/.htpasswd:/etc/nginx/.htpasswd:ro
+      - ./portal:/var/www/portal
       - ./logs/nginx:/var/logs/nginx
     ports:
       - '443:443' #- '80:80'
@@ -91,17 +92,19 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4000
-      - DB_HOST=db       # correcto
+      - DB_HOST=db
       - DB_PORT=5432
       - DB_NAME=pacsdb
       - DB_USER=pacs
       - DB_PASS=pacs
       - OHIF_URL=http://localhost:81
       - DCM4CHEE_URL=http://dcm4chee-arc:8080
+      - DCM4CHEE_AET=DCM4CHEE
+      - JWT_SECRET=dd9ee9e3800c77eb2ce5f8ad8c95370f1a49ed25483b6e4282526188fb634465
     networks:
       - pacs-network
     depends_on:
-      - db                     # el nombre real del servicio es "db"
+      - db
     restart: unless-stopped
 
 networks:
