@@ -1,7 +1,9 @@
 const sharp = require('sharp');
 const dcmjs = require('dcmjs');
 
-const { DicomMetaDictionary, DicomDict } = dcmjs.data;
+const { DicomMetaDictionary, DicomDict, DicomMessage } = dcmjs.data;
+
+const SC_CLASS = '1.2.840.10008.5.1.4.1.1.7'; // Secondary Capture
 
 function pad2(n) { return n.toString().padStart(2, '0'); }
 
@@ -13,25 +15,28 @@ function todayAsDicomDate() {
 async function imageToDicomBuffer({ imageBuffer, patientName, patientId, studyDescription, modality, studyInstanceUID, seriesInstanceUID, sopInstanceUID }) {
   // Normaliza cualquier formato (png, jpg, webp...) a RGB crudo de 8 bits
   const { data, info } = await sharp(imageBuffer)
+    .rotate() // respeta orientación EXIF
     .removeAlpha()
+    .toColourspace('srgb')
     .raw()
     .toBuffer({ resolveWithObject: true });
 
+  // El meta va con tags hexadecimales (dcmjs no acepta nombres aquí)
   const meta = {
-    MediaStorageSOPClassUID: '1.2.840.10008.5.1.4.1.1.7', // Secondary Capture
-    MediaStorageSOPInstanceUID: sopInstanceUID,
-    TransferSyntaxUID: '1.2.840.10008.1.2.1', // Explicit VR Little Endian
-    ImplementationClassUID: DicomMetaDictionary.uid(),
-    ImplementationVersionName: 'PACS_PORTAL_1_0',
+    '00020002': { vr: 'UI', Value: [SC_CLASS] },
+    '00020003': { vr: 'UI', Value: [sopInstanceUID] },
+    '00020010': { vr: 'UI', Value: ['1.2.840.10008.1.2.1'] }, // Explicit VR Little Endian
+    '00020012': { vr: 'UI', Value: [DicomMetaDictionary.uid()] },
+    '00020013': { vr: 'SH', Value: ['PACS_PORTAL_1_0'] },
   };
 
   const dataset = {
-    PatientName: patientName.replace(/\s+/g, '^'),
+    PatientName: patientName.trim().replace(/\s+/g, '^'),
     PatientID: patientId,
     StudyInstanceUID: studyInstanceUID,
     SeriesInstanceUID: seriesInstanceUID,
     SOPInstanceUID: sopInstanceUID,
-    SOPClassUID: '1.2.840.10008.5.1.4.1.1.7',
+    SOPClassUID: SC_CLASS,
     Modality: modality || 'OT',
     StudyDate: todayAsDicomDate(),
     SeriesDate: todayAsDicomDate(),
@@ -51,9 +56,8 @@ async function imageToDicomBuffer({ imageBuffer, patientName, patientId, studyDe
     PixelData: [data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)],
   };
 
-  const denaturalized = DicomMetaDictionary.denaturalizeDataset(dataset);
   const dicomDict = new DicomDict(meta);
-  dicomDict.dict = denaturalized;
+  dicomDict.dict = DicomMetaDictionary.denaturalizeDataset(dataset);
 
   return Buffer.from(dicomDict.write());
 }
@@ -63,41 +67,31 @@ function isDicomBuffer(buffer) {
   return buffer.toString('ascii', 128, 132) === 'DICM';
 }
 
-function overrideDicomFields(buffer, overrides) {
-  const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-  const dicomDict = dcmjs.data.DicomMessage.readFile(arrayBuffer, { ignoreErrors: true });
-  const dataset = DicomMetaDictionary.naturalizeDataset(dicomDict.dict);
+function toArrayBuffer(buffer) {
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+}
 
-  if (overrides.studyInstanceUID) dataset.StudyInstanceUID = overrides.studyInstanceUID;
-  if (overrides.seriesInstanceUID) dataset.SeriesInstanceUID = overrides.seriesInstanceUID;
-  if (overrides.patientName) dataset.PatientName = overrides.patientName.replace(/\s+/g, '^');
-  if (overrides.patientId) dataset.PatientID = overrides.patientId;
+function pnToString(pn) {
+  if (pn && typeof pn === 'object') pn = pn.Alphabetic;
+  return String(pn || '').replace(/\^/g, ' ').trim();
+}
 
-  // SIEMPRE un SOPInstanceUID nuevo: estamos reasignando el archivo a otro
-  // paciente/estudio, así que ya no puede conservar la identidad original
-  // (si la conserva, dcm4chee-arc lo rechaza como instancia duplicada si
-  // ese archivo ya se subió antes por cualquier otra vía).
-  dataset.SOPInstanceUID = overrides.sopInstanceUID;
-
-  const denaturalized = DicomMetaDictionary.denaturalizeDataset(dataset);
-  dicomDict.dict = denaturalized;
-  dicomDict.meta.MediaStorageSOPInstanceUID = dataset.SOPInstanceUID;
-
-  return {
-    buffer: Buffer.from(dicomDict.write()),
-    sopInstanceUID: dataset.SOPInstanceUID,
-    patientName: dataset.PatientName,
-    patientId: dataset.PatientID,
-    modality: dataset.Modality,
-  };
+// Lee el StudyInstanceUID de un DICOM sin modificarlo (null si no se puede)
+function readStudyUid(buffer) {
+  try {
+    const dd = DicomMessage.readFile(toArrayBuffer(buffer), { ignoreErrors: true });
+    const v = dd.dict['0020000D'] && dd.dict['0020000D'].Value && dd.dict['0020000D'].Value[0];
+    return v || null;
+  } catch (e) {
+    return null;
+  }
 }
 
 function readDicomMetadataPreview(buffer) {
-  const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-  const dicomDict = dcmjs.data.DicomMessage.readFile(arrayBuffer, { ignoreErrors: true });
-  const dataset = DicomMetaDictionary.naturalizeDataset(dicomDict.dict);
+  const dd = DicomMessage.readFile(toArrayBuffer(buffer), { ignoreErrors: true });
+  const dataset = DicomMetaDictionary.naturalizeDataset(dd.dict);
   return {
-    patientName: (dataset.PatientName || '').replace(/\^/g, ' ').trim(),
+    patientName: pnToString(dataset.PatientName),
     patientId: dataset.PatientID || '',
     studyDate: dataset.StudyDate || '',
     studyDescription: dataset.StudyDescription || '',
@@ -108,6 +102,6 @@ function readDicomMetadataPreview(buffer) {
 module.exports = {
   imageToDicomBuffer,
   isDicomBuffer,
-  overrideDicomFields,
+  readStudyUid,
   readDicomMetadataPreview,
 };

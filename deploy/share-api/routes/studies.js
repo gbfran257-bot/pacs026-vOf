@@ -5,23 +5,23 @@ const pool = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const {
   imageToDicomBuffer,
-  isDicomBuffer,
-  overrideDicomFields,
+  readStudyUid,
   readDicomMetadataPreview,
 } = require('../dicomUtils');
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 
-const DCM4CHEE_URL = process.env.DCM4CHEE_URL || 'http://arc:8080';
+const DCM4CHEE_URL = process.env.DCM4CHEE_URL || 'http://dcm4chee-arc:8080';
 const AET = process.env.DCM4CHEE_AET || 'DCM4CHEE';
 const STOW_URL = `${DCM4CHEE_URL}/dcm4chee-arc/aets/${AET}/rs/studies`;
 
 const JUNK_FILENAMES = ['.ds_store', 'thumbs.db', 'desktop.ini', '.localized'];
+const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'bmp', 'webp'];
 
 function esArchivoBasura(nombre) {
   const lower = nombre.toLowerCase();
-  return JUNK_FILENAMES.includes(lower) || lower.startsWith('._'); // archivos de recurso de macOS
+  return JUNK_FILENAMES.includes(lower) || lower.startsWith('._'); // recursos de macOS
 }
 
 function newUid() {
@@ -45,15 +45,14 @@ async function stowDicom(dicomBuffer) {
   });
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`STOW-RS falló (${response.status}): ${text}`);
+    throw new Error(`STOW-RS falló (${response.status}): ${text.slice(0, 300)}`);
   }
   let json = null;
-  try { json = JSON.parse(text); } catch (e) { /* algunas respuestas vienen vacías en éxito total */ }
+  try { json = JSON.parse(text); } catch (e) { /* respuesta vacía en éxito total */ }
   return json;
 }
 
-// Extrae el StudyInstanceUID real donde quedó guardado un archivo, leyendo
-// el RetrieveURL que dcm4chee-arc devuelve en la respuesta de STOW-RS.
+// StudyInstanceUID real donde quedó guardado un archivo (RetrieveURL de la respuesta STOW-RS)
 function extractStudyUidFromStowResponse(json) {
   try {
     const refSeq = json && json['00081199'] && json['00081199'].Value;
@@ -80,6 +79,22 @@ async function findExistingStudyForPatient(userId, patientId) {
     [userId, patientId]
   );
   return result.rows.length ? result.rows[0].study_iuid : null;
+}
+
+// Evita "secuestrar" estudios: si el estudio ya existe en el PACS y no es del usuario, se rechaza
+async function assertStudyNotForeign(userId, studyUid) {
+  if (!studyUid) return;
+  const r = await pool.query(
+    `SELECT us.user_id
+     FROM study s
+     LEFT JOIN app.user_studies us ON us.study_iuid = s.study_iuid
+     WHERE s.study_iuid = $1
+     LIMIT 1`,
+    [studyUid]
+  );
+  if (r.rows.length === 0) return;                 // estudio nuevo: ok
+  if (r.rows[0].user_id === userId) return;        // ya es suyo: ok
+  throw new Error('Ese estudio ya existe en el PACS y no te pertenece');
 }
 
 // GET /api/studies/mine
@@ -109,7 +124,7 @@ router.get('/mine', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/studies/upload (una sola imagen — se mantiene por compatibilidad)
+// POST /api/studies/upload (una sola imagen, por compatibilidad)
 router.post('/upload', requireAuth, upload.single('file'), async (req, res) => {
   const { patientName, patientId, descripcion } = req.body;
   if (!req.file || !patientName || !patientId) {
@@ -118,15 +133,15 @@ router.post('/upload', requireAuth, upload.single('file'), async (req, res) => {
   try {
     const existingStudyUID = await findExistingStudyForPatient(req.user.id, patientId);
     const studyInstanceUID = existingStudyUID || newUid();
-    const seriesInstanceUID = newUid();
-    const sopInstanceUID = newUid();
 
     const dicomBuffer = await imageToDicomBuffer({
       imageBuffer: req.file.buffer,
       patientName, patientId,
       studyDescription: descripcion || '',
       modality: 'OT',
-      studyInstanceUID, seriesInstanceUID, sopInstanceUID,
+      studyInstanceUID,
+      seriesInstanceUID: newUid(),
+      sopInstanceUID: newUid(),
     });
 
     await stowDicom(dicomBuffer);
@@ -144,8 +159,16 @@ router.post('/upload', requireAuth, upload.single('file'), async (req, res) => {
 });
 
 // POST /api/studies/upload-batch (varios archivos / carpeta)
-router.post('/upload-batch', requireAuth, upload.array('files', 200), async (req, res) => {
-  const { patientName, patientId, descripcion } = req.body;
+router.post('/upload-batch', requireAuth, (req, res, next) => {
+  upload.array('files', 200)(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    next();
+  });
+}, async (req, res) => {
+  const patientName = (req.body.patientName || '').trim();
+  const patientId = (req.body.patientId || '').trim();
+  const descripcion = (req.body.descripcion || '').trim();
+
   if (!req.files || req.files.length === 0 || !patientName || !patientId) {
     return res.status(400).json({ error: 'Faltan archivos, nombre o ID del paciente' });
   }
@@ -157,64 +180,70 @@ router.post('/upload-batch', requireAuth, upload.array('files', 200), async (req
     return res.status(400).json({ error: 'No había ningún archivo válido (solo archivos de sistema)' });
   }
 
-  const existingStudyUID = await findExistingStudyForPatient(req.user.id, patientId);
-  const studyInstanceUID = existingStudyUID || newUid();
-  const seriesInstanceUID = newUid();
+  try {
+    const existingStudyUID = await findExistingStudyForPatient(req.user.id, patientId);
+    const studyInstanceUID = existingStudyUID || newUid();
+    const seriesInstanceUID = newUid();
 
-  const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'bmp', 'webp'];
-  const resultados = [];      // { archivo, studyInstanceUID, modo }
-  const errores = [];
-  const studiosAjenos = new Set(); // estudios "crudos" que no se pudieron fusionar
+    const resultados = [];
+    const errores = [];
+    const studiosAjenos = new Set(); // estudios "crudos" que no se fusionaron con el principal
 
-  for (const file of archivosUtiles) {
-    const ext = (file.originalname.split('.').pop() || '').toLowerCase();
-    try {
-      if (IMAGE_EXTS.includes(ext)) {
-        // Imagen normal (PNG/JPG) → se construye desde cero, segura de reescribir
-        const sopInstanceUID = newUid();
-        const dicomBuffer = await imageToDicomBuffer({
-          imageBuffer: file.buffer, patientName, patientId,
-          studyDescription: descripcion || '', modality: 'OT',
-          studyInstanceUID, seriesInstanceUID, sopInstanceUID,
-        });
-        await stowDicom(dicomBuffer);
-        resultados.push({ archivo: file.originalname, studyInstanceUID, modo: 'convertido' });
+    for (const file of archivosUtiles) {
+      const ext = (file.originalname.split('.').pop() || '').toLowerCase();
+      try {
+        if (IMAGE_EXTS.includes(ext)) {
+          const dicomBuffer = await imageToDicomBuffer({
+            imageBuffer: file.buffer, patientName, patientId,
+            studyDescription: descripcion, modality: 'OT',
+            studyInstanceUID, seriesInstanceUID, sopInstanceUID: newUid(),
+          });
+          await stowDicom(dicomBuffer);
+          resultados.push({ archivo: file.originalname, studyInstanceUID, modo: 'convertido' });
+        } else {
+          // DICOM real: se sube intacto (reescribirlo puede corromper pixel data comprimido)
+          await assertStudyNotForeign(req.user.id, readStudyUid(file.buffer));
 
-      } else {
-        // DICOM real (de equipo médico) → NUNCA se reescribe, se sube intacto.
-        // Reescribir con dcmjs puede corromper archivos con pixel data comprimido.
-        // Conserva SU PROPIO paciente/estudio grabado por el equipo de origen.
-        const stowResponse = await stowDicom(file.buffer);
-        const uidReal = extractStudyUidFromStowResponse(stowResponse) || studyInstanceUID;
-        if (uidReal !== studyInstanceUID) studiosAjenos.add(uidReal);
-        resultados.push({ archivo: file.originalname, studyInstanceUID: uidReal, modo: 'original (conserva su propio paciente)' });
+          const stowResponse = await stowDicom(file.buffer);
+          const uidReal = extractStudyUidFromStowResponse(stowResponse) || studyInstanceUID;
+
+          // Revalida con el UID que devolvió el PACS (por si el archivo no traía UID legible)
+          if (uidReal !== studyInstanceUID) {
+            await assertStudyNotForeign(req.user.id, uidReal);
+            studiosAjenos.add(uidReal);
+          }
+          resultados.push({ archivo: file.originalname, studyInstanceUID: uidReal, modo: 'original' });
+        }
+      } catch (err) {
+        console.error(`Error con ${file.originalname}:`, err.message);
+        errores.push({ archivo: file.originalname, error: err.message });
       }
-    } catch (err) {
-      console.error(`Error con ${file.originalname}:`, err.message);
-      errores.push({ archivo: file.originalname, error: err.message });
     }
-  }
 
-  if (resultados.length === 0) {
-    return res.status(502).json({ error: 'Ningún archivo pudo subirse', errores, ignorados });
-  }
+    if (resultados.length === 0) {
+      return res.status(502).json({ error: 'Ningún archivo pudo subirse', errores, ignorados });
+    }
 
-  const todosLosEstudios = [studyInstanceUID, ...studiosAjenos];
-  for (const uid of todosLosEstudios) {
-    await pool.query(
-      'INSERT INTO app.user_studies (user_id, study_iuid) VALUES ($1, $2) ON CONFLICT (study_iuid) DO NOTHING',
-      [req.user.id, uid]
-    );
-  }
+    const uids = new Set(resultados.map((r) => r.studyInstanceUID));
+    for (const uid of uids) {
+      await pool.query(
+        'INSERT INTO app.user_studies (user_id, study_iuid) VALUES ($1, $2) ON CONFLICT (study_iuid) DO NOTHING',
+        [req.user.id, uid]
+      );
+    }
 
-  res.status(201).json({
-    studyInstanceUID,
-    reutilizado: !!existingStudyUID,
-    subidos: resultados,
-    errores,
-    ignorados,
-    estudiosAjenos: Array.from(studiosAjenos),
-  });
+    res.status(201).json({
+      studyInstanceUID,
+      reutilizado: !!existingStudyUID,
+      subidos: resultados,
+      errores,
+      ignorados,
+      estudiosAjenos: Array.from(studiosAjenos),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al procesar la subida' });
+  }
 });
 
 // POST /api/studies/preview-dicom

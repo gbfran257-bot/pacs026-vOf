@@ -11,12 +11,12 @@
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
-    "dcmjs": "^0.52.0",
-    "express": "^4.18.2",
+    "dcmjs": "^0.52.2",
+    "express": "^4.22.3",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.4.0",
+    "multer": "^2.5.0",
     "node-fetch": "^2.7.0",
-    "pg": "^8.23.0",
+    "pg": "^8.23.1",
     "sharp": "^0.35.5",
     "uuid": "^9.0.1"
   }

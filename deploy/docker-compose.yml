@@ -29,7 +29,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
       - ~/dcm4chee-arc/db:/var/lib/postgresql/data
-     # - ./share-api/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
       - pacs-network
 
@@ -41,8 +40,8 @@ services:
       options:
         max-size: "10m"
     ports:
-      - "8080:8080"
-      - "8443:8443"
+      - "8080:8080"   # QUITAR tras confirmar que el visor usa :81 (paso 7)
+      - "8443:8443"   # QUITAR junto con el anterior
       - "9990:9990"
       - "9993:9993"
       - "11112:11112"
@@ -76,19 +75,20 @@ services:
       - ./portal:/var/www/portal
       - ./logs/nginx:/var/logs/nginx
     ports:
-      - '443:443' #- '80:80'
+      - '443:443'
       - '81:81'
     restart: on-failure
     networks:
       - pacs-network
     depends_on:
       - arc
+      - share-api
 
   share-api:
     build: ./share-api
     container_name: pacs-share-api
     ports:
-      - "4000:4000"
+      - "4000:4000"   # solo para pruebas con curl; en producción puedes quitarlo
     environment:
       - NODE_ENV=production
       - PORT=4000
@@ -100,7 +100,7 @@ services:
       - OHIF_URL=http://localhost:81
       - DCM4CHEE_URL=http://dcm4chee-arc:8080
       - DCM4CHEE_AET=DCM4CHEE
-      - JWT_SECRET=dd9ee9e3800c77eb2ce5f8ad8c95370f1a49ed25483b6e4282526188fb634465
+      - JWT_SECRET=${JWT_SECRET}
     networks:
       - pacs-network
     depends_on:

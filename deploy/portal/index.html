@@ -35,6 +35,7 @@
   .mini{padding:5px 10px;font-size:12px;margin:0 0 0 6px;background:#3c6eb8}
   td.acts{white-space:nowrap}
   #linkBox{margin-top:14px;padding:12px;border-radius:6px;background:#eef6e4;font-size:14px;word-break:break-all}
+  #linkBox p{margin:8px 0 0;color:#444}
   .filesSummary{font-size:13px;color:#555;margin-top:6px}
 </style>
 </head>
@@ -100,9 +101,12 @@
 <script src="https://cdn.jsdelivr.net/npm/dcmjs@0.29.13/build/dcmjs.min.js"></script>
 <script>
 var API = '/api';
+var EXPIRY_HOURS = 48; // validez del enlace en horas (0 = sin caducidad)
+
 function $(id){ return document.getElementById(id); }
 function setMsg(el, text, ok){ el.textContent = text; el.className = 'msg ' + (ok ? 'ok' : 'err'); }
 function getToken(){ return localStorage.getItem('portal_token'); }
+function authHeader(){ return {Authorization: 'Bearer ' + getToken()}; }
 
 function showApp(logged){
   $('auth').classList.toggle('hidden', logged);
@@ -117,10 +121,30 @@ function fmtDate(d){
   d = String(d || '');
   return d.length === 8 ? d.slice(0,4) + '-' + d.slice(4,6) + '-' + d.slice(6,8) : d;
 }
-var EXPIRY_HOURS = 48; // validez del enlace en horas (0 = sin caducidad)
-
 function cleanName(n){ return (n || '').replace(/\^/g, ' '); }
 
+async function logout(){
+  try { await fetch(API + '/portal-auth/logout', {method: 'POST'}); } catch(e){}
+  localStorage.removeItem('portal_token');
+  localStorage.removeItem('portal_user');
+  $('linkBox').classList.add('hidden');
+  showApp(false);
+}
+
+async function postJson(url, body){
+  var r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  var d = await r.json().catch(function(){ return {}; });
+  if (!r.ok) throw new Error(d.error || 'Error ' + r.status);
+  return d;
+}
+
+function saveSession(d){
+  localStorage.setItem('portal_token', d.token);
+  localStorage.setItem('portal_user', d.user.nombre);
+  showApp(true);
+}
+
+// --- Enlaces para compartir (solo lectura para quien los recibe) ---
 async function getLink(s){
   var r = await fetch(API + '/share', {
     method: 'POST',
@@ -145,13 +169,23 @@ async function copyText(t){
 
 async function onGenerate(s){
   try {
-    setMsg($('listMsg'), 'Generando enlace...', true);
     var d = await getLink(s);
-    var copied = await copyText(d.url);
-    var exp = d.expiresAt ? new Date(d.expiresAt).toLocaleString() : 'No expira';
     var box = $('linkBox');
+    box.textContent = '';
     box.classList.remove('hidden');
-    box.textContent = 'Enlace: ' + d.url + '  |  Expira: ' + exp + (copied ? '  (copiado al portapapeles)' : '');
+
+    var url = document.createElement('div');
+    url.textContent = d.url;
+
+    var exp = document.createElement('p');
+    exp.textContent = 'Expira: ' + (d.expiresAt ? new Date(d.expiresAt).toLocaleString() : 'No expira') +
+      '. Quien reciba el enlace podrá ver y medir, pero no guardar cambios.';
+
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'mini'; b.style.marginLeft = '0'; b.textContent = 'Copiar enlace';
+    b.onclick = async function(){ b.textContent = (await copyText(d.url)) ? 'Copiado' : 'Copia el texto manualmente'; };
+
+    box.appendChild(url); box.appendChild(exp); box.appendChild(b);
     setMsg($('listMsg'), '', true);
   } catch(err){ setMsg($('listMsg'), err.message, false); }
 }
@@ -170,25 +204,7 @@ async function onShare(s){
   }
 }
 
-function logout(){
-  localStorage.removeItem('portal_token');
-  localStorage.removeItem('portal_user');
-  showApp(false);
-}
-
-async function postJson(url, body){
-  var r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-  var d = await r.json().catch(function(){ return {}; });
-  if (!r.ok) throw new Error(d.error || 'Error ' + r.status);
-  return d;
-}
-
-function saveSession(d){
-  localStorage.setItem('portal_token', d.token);
-  localStorage.setItem('portal_user', d.user.nombre);
-  showApp(true);
-}
-
+// --- Login / registro ---
 $('toRegister').onclick = function(){ $('loginForm').classList.add('hidden'); $('registerForm').classList.remove('hidden'); $('authMsg').textContent=''; };
 $('toLogin').onclick = function(){ $('registerForm').classList.add('hidden'); $('loginForm').classList.remove('hidden'); $('authMsg').textContent=''; };
 $('logout').onclick = logout;
@@ -205,41 +221,43 @@ $('registerForm').onsubmit = async function(e){
   catch(err){ setMsg($('authMsg'), err.message, false); }
 };
 
+// --- Lista de estudios ---
 async function loadStudies(){
   var tbody = $('rows');
   tbody.innerHTML = '';
   setMsg($('listMsg'), 'Cargando...', true);
   try {
-    var r = await fetch(API + '/studies/mine', {headers:{Authorization:'Bearer ' + getToken()}});
+    var r = await fetch(API + '/studies/mine', {headers: authHeader()});
     if (r.status === 401){ logout(); return; }
     var list = await r.json();
     if (!r.ok) throw new Error(list.error || 'Error ' + r.status);
     setMsg($('listMsg'), list.length ? '' : 'Aún no tienes estudios.', true);
     list.forEach(function(s){
+      var viewerUrl = '/viewer?StudyInstanceUIDs=' + encodeURIComponent(s.study_iuid);
       var tr = document.createElement('tr');
-      tr.onclick = function(){ window.open('/viewer?StudyInstanceUIDs=' + encodeURIComponent(s.study_iuid), '_blank'); };
-      var vals = [
-        (s.patient_name || '').replace(/\^/g, ' '),
-        s.patient_id || '',
-        fmtDate(s.study_date),
-        s.study_desc || '',
-        s.modalities_in_study || ''
-      ];
-      vals.forEach(function(v){ var td = document.createElement('td'); td.textContent = v; tr.appendChild(td); });
+      tr.onclick = function(){ window.open(viewerUrl, '_blank'); };
+
+      [cleanName(s.patient_name), s.patient_id || '', fmtDate(s.study_date), s.study_desc || '', s.modalities_in_study || '']
+        .forEach(function(v){ var td = document.createElement('td'); td.textContent = v; tr.appendChild(td); });
+
       var td = document.createElement('td');
-      var a = document.createElement('a');
-      a.textContent = 'Abrir';
-      a.target = '_blank'; a.onclick = function(ev){ ev.stopPropagation(); };
-      a.href = '/viewer?StudyInstanceUIDs=' + encodeURIComponent(s.study_iuid);
       td.className = 'acts';
+
+      var a = document.createElement('a');
+      a.textContent = 'Abrir'; a.target = '_blank'; a.href = viewerUrl;
+      a.onclick = function(ev){ ev.stopPropagation(); };
       td.appendChild(a);
+
       var b1 = document.createElement('button');
       b1.type = 'button'; b1.className = 'mini'; b1.textContent = 'Generar enlace';
       b1.onclick = function(ev){ ev.stopPropagation(); onGenerate(s); };
+      td.appendChild(b1);
+
       var b2 = document.createElement('button');
       b2.type = 'button'; b2.className = 'mini'; b2.textContent = 'Compartir';
       b2.onclick = function(ev){ ev.stopPropagation(); onShare(s); };
-      td.appendChild(b1); td.appendChild(b2);
+      td.appendChild(b2);
+
       tr.appendChild(td);
       tbody.appendChild(tr);
     });
@@ -253,10 +271,7 @@ function mergeFiles(newList){
   var existentes = new Set(selectedFiles.map(function(f){ return f.name + '_' + f.size; }));
   Array.from(newList).forEach(function(f){
     var clave = f.name + '_' + f.size;
-    if (!existentes.has(clave)) {
-      selectedFiles.push(f);
-      existentes.add(clave);
-    }
+    if (!existentes.has(clave)) { selectedFiles.push(f); existentes.add(clave); }
   });
   $('filesSummary').textContent = selectedFiles.length + ' archivo(s) seleccionado(s)';
   autoFillFromFirstDicom();
@@ -277,7 +292,9 @@ async function autoFillFromFirstDicom(){
     var arrayBuffer = await dicomFile.arrayBuffer();
     var dicomDict = dcmjs.data.DicomMessage.readFile(arrayBuffer, { ignoreErrors: true });
     var dataset = dcmjs.data.DicomMetaDictionary.naturalizeDataset(dicomDict.dict);
-    var nombre = (dataset.PatientName || '').replace(/\^/g, ' ').trim();
+    var pn = dataset.PatientName;
+    if (pn && typeof pn === 'object') pn = pn.Alphabetic;
+    var nombre = String(pn || '').replace(/\^/g, ' ').trim();
     if (nombre) $('patientName').value = nombre;
     if (dataset.PatientID) $('patientId').value = dataset.PatientID;
     if (dataset.StudyDescription) $('descripcion').value = dataset.StudyDescription;
@@ -300,19 +317,17 @@ $('uploadForm').onsubmit = async function(e){
 
   setMsg($('uploadMsg'), 'Subiendo ' + selectedFiles.length + ' archivo(s)...', true);
   try {
-    var r = await fetch(API + '/studies/upload-batch', {method:'POST', headers:{Authorization:'Bearer ' + getToken()}, body:fd});
+    var r = await fetch(API + '/studies/upload-batch', {method:'POST', headers: authHeader(), body: fd});
     var d = await r.json().catch(function(){ return {}; });
     if (r.status === 401){ logout(); return; }
     if (!r.ok){
-      var detalle = (d.errores || []).map(function(e){ return e.archivo + ': ' + e.error; }).join(' | ');
+      var detalle = (d.errores || []).map(function(x){ return x.archivo + ': ' + x.error; }).join(' | ');
       throw new Error((d.error || ('Error ' + r.status)) + (detalle ? ' — ' + detalle : ''));
     }
     var okMsg = 'Listo: ' + d.subidos.length + ' archivo(s) subidos.';
-    if (d.estudiosAjenos && d.estudiosAjenos.length){
-      okMsg += ' Nota: ' + d.estudiosAjenos.length + ' archivo(s) DICOM sin cabecera estándar no se pudieron fusionar y quedaron como estudio(s) aparte (con su propio paciente original).';
-    }
+    if (d.omitidos && d.omitidos.length) okMsg += ' Omitidos (DICOMDIR): ' + d.omitidos.length + '.';
     if (d.errores && d.errores.length){
-      okMsg += ' — ' + d.errores.length + ' fallaron: ' + d.errores.map(function(e){ return e.archivo; }).join(', ');
+      okMsg += ' — ' + d.errores.length + ' fallaron: ' + d.errores.map(function(x){ return x.archivo + ' (' + x.error + ')'; }).join(', ');
     }
     setMsg($('uploadMsg'), okMsg, true);
     $('uploadForm').reset();
@@ -322,7 +337,17 @@ $('uploadForm').onsubmit = async function(e){
   } catch(err){ setMsg($('uploadMsg'), err.message, false); }
 };
 
-showApp(!!getToken());
+// --- Arranque: valida la sesión (y repone la cookie de escritura si faltaba) ---
+(async function init(){
+  if (!getToken()){ showApp(false); return; }
+  try {
+    var r = await fetch(API + '/portal-auth/me', {headers: authHeader()});
+    if (!r.ok) throw new Error('sesión inválida');
+    var d = await r.json();
+    localStorage.setItem('portal_user', d.user.nombre);
+    showApp(true);
+  } catch(e){ logout(); }
+})();
 </script>
 </body>
 </html>
