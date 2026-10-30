@@ -1,10 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import html2canvas from 'html2canvas';
-import { getEnabledElement, StackViewport, BaseVolumeViewport } from '@cornerstonejs/core';
+import {
+  getEnabledElement,
+  StackViewport,
+  BaseVolumeViewport,
+  metaData,
+} from '@cornerstonejs/core';
 import { ToolGroupManager, segmentation, Enums } from '@cornerstonejs/tools';
 import { getEnabledElement as OHIFgetEnabledElement } from '../state';
 import { useSystem } from '@ohif/core/src';
-import { composeCanvases, descargarCanvas, imprimirCanvas } from './composeAndPrint';
+import {
+  composeCanvases,
+  descargarCanvas,
+  imprimirCanvas,
+  infoDesdeInstancia,
+} from './composeAndPrint';
 
 const DEFAULT_SIZE = 512;
 const MAX_TEXTURE_SIZE = 10000;
@@ -31,7 +41,8 @@ const CornerstoneViewportDownloadForm = ({
   activeViewportId: activeViewportIdProp,
 }: ViewportDownloadFormProps) => {
   const { servicesManager } = useSystem();
-  const { customizationService, cornerstoneViewportService } = servicesManager.services;
+  const { customizationService, cornerstoneViewportService, displaySetService } =
+    servicesManager.services;
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [viewportDimensions, setViewportDimensions] = useState({
     width: DEFAULT_SIZE,
@@ -208,6 +219,27 @@ const CornerstoneViewportDownloadForm = ({
     }
   }, [viewportDimensions, showAnnotations]);
 
+  // Datos del paciente / médico tomados de los metadatos DICOM de la imagen del viewport
+  const getInfo = (viewportId: string) => {
+    try {
+      const el = OHIFgetEnabledElement(viewportId)?.element;
+      const viewport: any = el ? getEnabledElement(el)?.viewport : null;
+      const imageId = viewport?.getCurrentImageId?.();
+      let inst: any = imageId ? metaData.get('instance', imageId) : null;
+
+      if (!inst) {
+        const data: any = cornerstoneViewportService.getViewportInfo(viewportId)?.getViewportData();
+        const uid = data?.data?.[0]?.displaySetInstanceUID;
+        const ds: any = uid && displaySetService.getDisplaySetByUID(uid);
+        inst = ds?.instances?.[0] ?? ds?.instance ?? null;
+      }
+      return infoDesdeInstancia(inst);
+    } catch (e) {
+      console.debug('No se pudieron leer los datos del estudio', e);
+      return {};
+    }
+  };
+
   const handleDownload = async (filename: string, fileType: string) => {
     const divForDownloadViewport = document.querySelector(
       `div[data-viewport-uid="${VIEWPORT_ID}"]`
@@ -225,19 +257,17 @@ const CornerstoneViewportDownloadForm = ({
     link.click();
   };
 
-    const handlePrint = async () => {
+  const handlePrint = async () => {
     const div = document.querySelector(`div[data-viewport-uid="${VIEWPORT_ID}"]`);
     if (!div) {
       return;
     }
     const canvas = await html2canvas(div as HTMLElement);
-    imprimirCanvas(canvas);
+    imprimirCanvas(canvas, getInfo(activeViewportId));
   };
 
   const getCells = () => {
-    const ids = cornerstoneViewportService
-      .getViewportIds()
-      .filter(id => id !== VIEWPORT_ID);
+    const ids = cornerstoneViewportService.getViewportIds().filter(id => id !== VIEWPORT_ID);
 
     return ids
       .map((id, i) => {
@@ -289,10 +319,12 @@ const CornerstoneViewportDownloadForm = ({
       return;
     }
     const combinado = composeCanvases(canvases, { cols: opts.cols });
+    // los datos del paciente salen de la primera celda seleccionada
+    const info = getInfo(ids[0] || activeViewportId);
     if (opts.action === 'print') {
-      imprimirCanvas(combinado);
+      imprimirCanvas(combinado, info);
     } else {
-      descargarCanvas(combinado, opts.filename, opts.fileType);
+      descargarCanvas(combinado, opts.filename, opts.fileType, info);
     }
   };
 
