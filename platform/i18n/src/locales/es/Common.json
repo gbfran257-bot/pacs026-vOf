@@ -11,5 +11,16 @@
   "Series": "Secuencia",
   "Show": "Mostrar",
   "Stop": "Detener",
-  "StudyDate": "Fecha de estudo"
+  "StudyDate": "Fecha de estudo",
+  "Back to": "Volver a {{location}}",
+  "Close": "Cerrar",
+  "LOAD": "CARGAR",
+  "mm": "mm",
+  "No": "No",
+  "NoStudyDate": "Sin fecha de estudio",
+  "Yes": "Sí",
+  "Cancel": "Cancelar",
+  "Save": "Guardar",
+  "localDateFormat": "DD/MM/YYYY",
+  "Back": "Atrás"
 }

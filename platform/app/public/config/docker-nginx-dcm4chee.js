@@ -10,6 +10,7 @@ window.config = {
   showLoadingIndicator: true,
   strictZSpacingForVolumeViewport: true,
   defaultDataSourceName: 'dicomweb',
+  defaultLanguage: { label: 'Español', value: 'es' },
   whiteLabeling: {
     createLogoComponentFn: function (React) {
       return React.createElement(

@@ -332,16 +332,24 @@ export function imprimirCanvas(canvas: HTMLCanvasElement, info: InfoEstudio = {}
         margin: 0 0 calc(2 * var(--m)); font-weight: 500; }
       .encabezado .info p { margin: 0; font-size: calc(3.18 * var(--m)); line-height: 1.35; min-height: calc(3 * var(--m)); }
 
+      /* Datos del paciente, a un lado del logo */
+      .encabezado .datos-enc { position: absolute; left: calc(70 * var(--m)); top: calc(14 * var(--m));
+        width: calc(84 * var(--m)); color: #222; font-size: calc(2.9 * var(--m)); line-height: 1.25; }
+      .encabezado .datos-enc .f { display: flex; gap: calc(1.5 * var(--m)); align-items: baseline; }
+      .encabezado .datos-enc b { color: #2e2a6e; white-space: nowrap; font-weight: 600; }
+      .encabezado .datos-enc .v { flex: 1; min-width: 0; min-height: calc(3.4 * var(--m));
+        overflow: hidden; white-space: nowrap; }
+      @media (orientation: portrait) {
+        .encabezado .logo { max-width: calc(45 * var(--m)); }
+        .encabezado .info { width: calc(88 * var(--m)); }
+        .encabezado .datos-enc { left: calc(55 * var(--m)); width: calc(62 * var(--m)); }
+      }
+
       /* ---------- CUERPO (fondo blanco) ---------- */
       .cuerpo { position: fixed; left: 0; right: 0; top: calc(38 * var(--m)); bottom: calc(30 * var(--m)); background: #fff; padding: calc(6 * var(--m)) calc(8 * var(--m));
         display: flex; flex-direction: column; gap: calc(4 * var(--m)); }
       .estudio { position: relative; flex: 1; min-height: 0; }
       .estudio img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
-      .datos { align-self: flex-end; color: #222; font-family: 'Courier New', monospace;
-        font-size: calc(3.53 * var(--m)); display: grid; grid-template-columns: auto calc(62 * var(--m));
-        column-gap: calc(3 * var(--m)); row-gap: calc(1.5 * var(--m)); }
-      .datos .e { text-align: right; }
-      .datos .v { border-bottom: calc(0.2 * var(--m)) solid #777; min-height: calc(4.5 * var(--m)); }
 
       /* ---------- PIE ---------- */
       .pie { position: fixed; left: 0; right: 0; bottom: 0; height: calc(30 * var(--m)); background: #f6f6f6;
@@ -369,18 +377,18 @@ export function imprimirCanvas(canvas: HTMLCanvasElement, info: InfoEstudio = {}
             <div class="titulo" contenteditable="true">${esc(enc.titulo)}</div>
             ${htmlLineasEnc(lineasEnc)}
           </div>
+          <div class="datos-enc">
+            <div class="f"><b>Paciente:</b><span class="v" contenteditable="true">${esc(info.paciente || '')}</span></div>
+            <div class="f"><b>ID:</b><span class="v" contenteditable="true">${esc(info.id || '')}</span></div>
+            <div class="f"><b>Fecha:</b><span class="v" contenteditable="true">${esc(info.fechaEstudio || new Date().toLocaleDateString('es-MX'))}</span></div>
+            <div class="f"><b>Nacimiento:</b><span class="v" contenteditable="true">${esc(info.nacimiento || '')}${info.edad ? ` (${esc(info.edad)})` : ''}</span></div>
+            <div class="f"><b>Sexo:</b><span class="v" contenteditable="true">${esc(info.sexo || '')}</span></div>
+            <div class="f"><b>Médico:</b><span class="v" contenteditable="true">${esc(info.medicoSolicita || '')}</span></div>
+          </div>
         </div>
 
         <div class="cuerpo">
           <div class="estudio"><img id="im" src="${dataUrl}" /></div>
-          <div class="datos">
-            <div class="e">Nombre del paciente:</div><div class="v" contenteditable="true">${esc(info.paciente || '')}</div>
-            <div class="e">ID:</div><div class="v" contenteditable="true">${esc(info.id || '')}</div>
-            <div class="e">Fecha:</div><div class="v" contenteditable="true">${esc(info.fechaEstudio || new Date().toLocaleDateString('es-MX'))}</div>
-            <div class="e">Fecha de nacimiento:</div><div class="v" contenteditable="true">${esc(info.nacimiento || '')}${info.edad ? ` (${esc(info.edad)})` : ''}</div>
-            <div class="e">Sexo:</div><div class="v" contenteditable="true">${esc(info.sexo || '')}</div>
-            <div class="e">Médico:</div><div class="v" contenteditable="true">${esc(info.medicoSolicita || '')}</div>
-          </div>
         </div>
 
         <div class="pie">

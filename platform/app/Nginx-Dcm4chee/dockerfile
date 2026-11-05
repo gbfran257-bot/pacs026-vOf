@@ -16,6 +16,8 @@ COPY ./ /usr/src/app/
 
 # Install node dependencies
 RUN yarn config set workspaces-experimental true
+ENV CYPRESS_INSTALL_BINARY=0
+ENV CYPRESS_INSTALL_BINARY=0
 RUN yarn install --frozen-lockfile
 
 # Copy the rest of the application code
